@@ -1,5 +1,6 @@
 from app.services.detector import detect_objects
 import cv2 
+from app.services.alerts import trigger_alert
 
 def start_camera():
     # On Windows, CAP_DSHOW often opens webcams more reliably.
@@ -12,8 +13,9 @@ def start_camera():
         if not ret:
             break
         
-        results = detect_objects(frame)
+        results, detected_objects = detect_objects(frame)
         
+        trigger_alert(detected_objects)
         annotated_frame = results[0].plot()
         
         cv2.imshow("AI Detection", annotated_frame)
