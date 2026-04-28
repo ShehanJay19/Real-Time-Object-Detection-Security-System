@@ -11,5 +11,6 @@ def detect_objects(frame):
         for box in r.boxes:
             cls =int(box.cls[0])
             label = model.names[cls]
-            detected.append(label)
+            confidence = float(box.conf[0])
+            detected.append((label, confidence))
     return results, detected

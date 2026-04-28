@@ -3,6 +3,9 @@ from fastapi.responses import HTMLResponse
 from app.services.camera import start_camera
 from app.services.alerts import get_alerts
 import threading
+from app.services.database import init_db
+
+init_db()
 
 app= FastAPI()
 @app.get("/")
