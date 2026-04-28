@@ -4,4 +4,12 @@ model = YOLO("yolov8m.pt")
 
 def detect_objects(frame):
     results = model(frame)
-    return results
+    
+    detected = []
+    
+    for r in results:
+        for box in r.boxes:
+            cls =int(box.cls[0])
+            label = model.names[cls]
+            detected.append(label)
+    return results, detected
