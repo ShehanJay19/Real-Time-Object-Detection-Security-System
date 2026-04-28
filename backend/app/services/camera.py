@@ -1,3 +1,4 @@
+from app.services.detector import detect_objects
 import cv2 
 
 def start_camera():
@@ -10,7 +11,12 @@ def start_camera():
         ret, frame = cap.read()
         if not ret:
             break
-        cv2.imshow("Camera", frame)
+        
+        results = detect_objects(frame)
+        
+        annotated_frame = results[0].plot()
+        
+        cv2.imshow("AI Detection", annotated_frame)
         
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
