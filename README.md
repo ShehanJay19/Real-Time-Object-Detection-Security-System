@@ -87,7 +87,7 @@ cd security-system
 ### 2. Backend Setup
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload
+uvicorn app.main:app --reload
 
 
 ### 3. Frontend Setup
