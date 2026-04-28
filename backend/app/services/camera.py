@@ -1,6 +1,7 @@
 from app.services.detector import detect_objects
 import cv2 
 from app.services.alerts import trigger_alert
+from app.services.database import save_log
 
 def start_camera():
     # On Windows, CAP_DSHOW often opens webcams more reliably.
@@ -14,6 +15,8 @@ def start_camera():
             break
         
         results, detected_objects = detect_objects(frame)
+        for obj, conf in detected_objects:
+            save_log(obj, conf)
         
         trigger_alert(detected_objects)
         annotated_frame = results[0].plot()
