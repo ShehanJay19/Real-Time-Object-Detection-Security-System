@@ -1,5 +1,6 @@
 import sqlite3
 import time
+from app.services.email_service import send_email_alert
 from app.services.telegram_service import send_telegram_alert
 
 last_alert_time = 0
@@ -27,6 +28,7 @@ def should_trigger_alert(detected_objects):
 def trigger_alert(objects):
     print("🚨 ALERT:", objects)
 
+    send_email_alert(objects)
     send_telegram_alert(objects)
 
 
