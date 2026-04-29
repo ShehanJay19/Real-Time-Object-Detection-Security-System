@@ -1,33 +1,171 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
-from app.services.camera import start_camera
+from pathlib import Path
+import os
+from fastapi import Depends, FastAPI, Header, Query
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+
+
+def load_local_env_file():
+    """Load backend/.env variables into process env if not already set."""
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.exists():
+        return
+
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw or raw.startswith("#") or "=" not in raw:
+            continue
+
+        key, value = raw.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_local_env_file()
+
+from app.services.camera import (
+    generate_mjpeg_stream,
+    get_camera_options,
+    get_camera_status,
+    is_camera_running,
+    set_selected_camera,
+    start_camera,
+    list_available_cameras,
+)
+from app.routes.auth import router as auth_router
 from app.services.alerts import get_alerts
 import threading
 from app.services.database import init_db
 from app.routes.logs import router as logs_router
+from app.services.auth_service import validate_owner_token
+from typing import Optional
 
 init_db()
 
 app= FastAPI()
+
+
+def resolve_owner_token(
+    authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),
+):
+    if authorization and authorization.lower().startswith("bearer "):
+        return validate_owner_token(authorization.split(" ", 1)[1].strip())
+
+    if token:
+        return validate_owner_token(token)
+
+    return None
+
+
+def require_auth(
+    authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),
+):
+    owner = resolve_owner_token(authorization=authorization, token=token)
+    if not owner:
+        from fastapi import HTTPException, status
+
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Owner login required")
+    return owner
+
+
+@app.middleware("http")
+async def owner_auth_middleware(request, call_next):
+    public_paths = {"/", "/docs", "/redoc", "/openapi.json", "/auth/login"}
+    path = request.url.path
+
+    if path in public_paths or path.startswith("/static"):
+        return await call_next(request)
+
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else request.query_params.get("token", "")
+    owner = validate_owner_token(token)
+
+    if not owner:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Owner login required"},
+        )
+
+    request.state.owner = owner
+    return await call_next(request)
+
+
 @app.on_event("startup")
 def startup_event():
     init_db()
+    # Initialize camera list once on startup in background
+    def init_cameras():
+        import time
+        time.sleep(0.1)  # Small delay to ensure server is ready
+        print("🚀 Initializing camera list on startup...")
+        try:
+            list_available_cameras(force_rescan=True)
+            print("✅ Camera initialization complete")
+        except Exception as e:
+            print(f"⚠️ Camera init error (non-blocking): {e}")
+    
+    thread = threading.Thread(target=init_cameras, daemon=True)
+    thread.start()
 
+app.include_router(auth_router)
 app.include_router(logs_router)    
 @app.get("/")
 def root():
     return {"message": "Hello World"}
 
 @app.get("/start-camera")
-def run_camera():
+def run_camera(_: dict = Depends(require_auth)):
+    if is_camera_running():
+        return {"status": "Camera already running"}
+
     thread=threading.Thread(target=start_camera)
+    thread.daemon = True
     thread.start()
     return {"status": "Camera started"}
 
 
+@app.get("/camera-status")
+def camera_status(_: dict = Depends(require_auth)):
+    return get_camera_status()
+
+
+@app.get("/cameras")
+def list_cameras(_: dict = Depends(require_auth)):
+    return get_camera_options()
+
+
+@app.get("/debug/cameras")
+def debug_cameras(_: dict = Depends(require_auth)):
+    """Detailed camera debug info - forces a fresh scan"""
+    from app.services.camera import list_available_cameras
+    
+    cameras_list = list_available_cameras(force_rescan=True)
+    return {
+        "message": "Fresh camera scan completed",
+        "cameras": cameras_list,
+        "camera_count": len(cameras_list),
+    }
+
+
+@app.get("/select-camera")
+def select_camera(index: int = Query(..., ge=0, le=20), _: dict = Depends(require_auth)):
+    return set_selected_camera(index)
+
+
+@app.get("/video-feed")
+def video_feed(_: dict = Depends(require_auth)):
+    return StreamingResponse(
+        generate_mjpeg_stream(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
 @app.get("/alerts")
-def read_alerts():
-    return {"alerts": get_alerts()}
+def read_alerts(object_name: Optional[str] = None, minutes: Optional[int] = None, _: dict = Depends(require_auth)):
+    return {"alerts": get_alerts(object_name=object_name, minutes=minutes)}
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
