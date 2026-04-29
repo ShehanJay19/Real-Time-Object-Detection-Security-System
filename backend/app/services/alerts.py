@@ -1,4 +1,10 @@
 import time
+from app.services.telegram_service import send_telegram_alert
+
+def trigger_alert(objects):
+    print("🚨 ALERT:", objects)
+
+    send_telegram_alert(objects)
 
 last_alert_time = 0
 ALERT_COUNTDOWN = 10
