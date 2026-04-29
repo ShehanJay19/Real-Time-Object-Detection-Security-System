@@ -4,10 +4,16 @@ from app.services.camera import start_camera
 from app.services.alerts import get_alerts
 import threading
 from app.services.database import init_db
+from app.routes.logs import router as logs_router
 
 init_db()
 
 app= FastAPI()
+@app.on_event("startup")
+def startup_event():
+    init_db()
+
+app.include_router(logs_router)    
 @app.get("/")
 def root():
     return {"message": "Hello World"}
